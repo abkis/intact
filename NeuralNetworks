@@ -1,0 +1,215 @@
+
+#import the data set
+import pandas as pd
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+data = pd.read_csv('training_data_small.csv')
+ #looking at data
+get_ipython().run_line_magic('matplotlib', 'inline')
+data.hist(bins = 50, figsize = (20, 15))
+plt.show()
+sns.FacetGrid(data)     .map(plt.scatter, "AGE", "INCURRED_LOSS_COMPREHENSIVE")     .add_legend()
+plt.show()
+
+
+#can use sigmoid function to determine activation so f = 1/(1+exp(-z))
+#need weights for input, wij^(l) where i = neuron number in l+1 layer, j is neuron number in l layer
+#ie node 1 in l1 connect to node 3 in l2 -> w31^(1)
+#bias bi^(l) for input
+#output hj^(l) j = node # in layer l
+
+#use to check if code is working
+#w1 = np.array([[0.2, 0.2, 0.2], [0.4, 0.4, 0.4], [0.6, 0.6, 0.6]])
+#w2 = np.array([0.5, 0.5, 0.5])
+#b1 = 1.3*w2
+#b2 = np.array([0.2])
+#W = [w1, w2]
+#B = [b1, b2]
+#x = [1.5, 2, 3]
+
+#want to reduce error by changing w to minimize gradient of error func
+#change w so: w = w - a*del_err where a is step size and del_err is gradient of error func
+#use cost func to det if achieving goal
+
+def costFunc(n, a, y):
+    #n is number of training inputs
+    #a is vector of outputs
+    #y is vector of actual outputs
+    
+    if len(a) != len(y):
+        return "a and y must be equal"
+    
+    if len(y) != n:
+        return "n and y must be equal"
+    
+    sum = 0
+    
+    for i in range(n):
+        vals = y[i] - a[i]
+        norm2 = vals**2
+        sum += norm2
+    
+    cost = sum/(2*n)
+    
+    return cost
+
+#split data
+
+from sklearn.model_selection import train_test_split
+
+#our adaboost classifier
+from sklearn.ensemble import AdaBoostClassifier
+
+#log accuracy of classifier
+from sklearn.metrics import confusion_matrix
+from sklearn.metrics import accuracy_score
+
+#change vals to numbers
+data["DRIVER_MARTIAL_STATUS"] = pd.get_dummies(data["DRIVER_MARTIAL_STATUS"])["M"]
+data["DRIVER_TRAINING_IND"] = pd.get_dummies(data["DRIVER_TRAINING_IND"])["N"]
+data["GENDER"] = pd.get_dummies(data["GENDER"])["M"]
+data = data.fillna(value = 0)
+
+x = data.iloc[:, :-1]
+y = data.iloc[:, -1]
+
+#get training set
+x_train, x_test, y_train, y_test = train_test_split(data.loc[:,:], y, test_size = 0.25, random_state = 0)
+
+#get classifier
+clf = AdaBoostClassifier()
+
+#fit on our model
+clf.fit(x_train, y_train)
+
+#prediction
+prediction = clf.predict(x_test)
+accuracy = accuracy_score(prediction, y_test)
+cm = confusion_matrix(prediction, y_test)
+print("AdaBoost Accuracy", accuracy)
+print('\n')
+print("Confusion matrix", cm)
+print("\n")
+
+def sig_f(z):
+    return 1/(1+np.exp(-z))
+
+def sig_deriv(z):
+    return f(z)*(1-f(z))
+
+import numpy.random as r
+#get random W and b to begin with
+def initWb(nnStructure):
+    W = {}
+    b = {}
+    
+    for l in range(1, len(nnStructure)):
+        W[l] = r.random_sample((nnStructure[l], nnStructure[l-1]))
+        b[l] = r.random_sample((nnStructure[l],))
+    
+    return W, b
+
+#make sure change(W, b) == 0
+
+def triWb(nnStructure):
+    triW = {}
+    trib = {}
+    
+    for l in range(1, len(nnStructure)):
+        triW[l] = np.zeros((nnStructure[l], nnStructure[l-1]))
+        trib[l] = np.zeros((nnStructure[l],))
+    
+    return triW, trib
+
+def NN_matrix(layers, w, x, b):
+    #use matrix multip to fasten process
+    #create sigmoid func
+    for l in range(layers-1):
+        if l == 0:
+            inp = x
+        else:
+            inp = h
+        z = w[l].dot(inp)+ b[l]
+        
+        h = sig_f(z)
+    
+    return h
+
+def ff(x, W, b):
+    #perform feed forward pass to get h, z
+    h = {1:x}
+    z = {}
+    for l in range(1, len(W)+1):
+        if l == 1:
+            inp = x
+        else:
+            inp = h[l]
+        z[l+1] = W[l].dot(inp) + b[l]
+        h[l+1] = sig_f(z[l+1])
+        
+    return h, z
+
+def outerDelta(y, h, z):
+    return -(y-h)*sig_deriv(z)
+
+def hiddenDelta(d, w, z):
+    return np.dot(np.transpose(w),d)*sig_deriv(z)
+
+def train(nnStructure, x, y, num = 3000, a = 0.25):
+    #get init w, b guesses
+    W, b = initWb(nnStructure)
+    i = 0 #set up count to check iterations
+    n = len(y) #number of training inputs
+    avgCost_f = []
+    
+    while i < num:
+        #only run if less than predef iterations
+        triW, trib = triWb(nnStructure)
+        avgCost = 0
+        
+        for i in range(n):
+            delta = {}
+            h, z = ff(x[i, :], W, b)
+            for l in range(len(nnStructure), 0, -1):
+                if l == len(nnStructure):
+                    delta[l] = outerDelta(y[i, :], h[l], z[l])
+                    avgCost += np.linalg.norm((y[i, :]-h[l]))
+                else:
+                    if l > 1:
+                        delta[l] = hiddenDelta(delta[l+1], W[l], z[l])
+                        
+                        triW[l] += np.dot(delta[l+1][:, np.newaxis], np.transpose(h[l][:, np.newaxis]))
+                        trib[l] += delta[l+1]
+        for l in range(len(nnStructure)-1, 0, -1):
+            W[l] += -a/(n*triW[l])
+            b[l] += -a/(n*trib[l])
+    
+        avgCost = avgCost/n
+        avgCost_f.append(avgCost)
+        i += 1
+    return W, b, avgCost_f
+
+def predY(W, b, X, layers):
+    n = X.shape[0]
+    yPred = np.zeros((n,))
+    for i in range(n):
+        h, z = ff(X[i, :], W, b)
+        yPred[i] = np.argmax(h[n_layers])
+    return yPred
+
+#see how accurate prediction is
+from sklearn.metrics import accuracy_score
+def accuracy(yPred, yTest):
+    return accuracy_score(yTest, yPred)*100
+
+nnStructure = [64, 30, 100]
+#turn x_train into matrix
+c = len(x_train.count())
+r = len(x_train.count(axis = "columns"))
+X = np.zeros((r, c))
+for col in range(c):
+    for row in range(r):
+        X[row][col] = x_train.iloc[row][col]  
